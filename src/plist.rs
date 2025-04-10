@@ -205,14 +205,13 @@ impl BPlist {
         let (_, _) = Self::parse_bplist_header(input)?;
         let (_, trailer) = Self::parse_trailer(&input[input.len() - 32..])?;
         let offset_table_start = trailer.offset_table_start as usize;
-        let (_, offset_table) = Self::parse_offset_table(
+        let (_, offsets) = Self::parse_offset_table(
             &input[offset_table_start..],
             trailer.num_objects,
             trailer.offset_table_offset_size,
         )?;
-        let offset = offset_table[trailer.top_object_offset as usize];
-        let object_data = &input[offset..];
-        Self::parse_object(&input[..], object_data, &offset_table, &trailer)
+        let offset = offsets[trailer.top_object_offset as usize];
+        Self::parse_object(input, offset, &offsets, &trailer)
     }
     fn parse_float(input: &[u8], extra_info: u8) -> IResult<&[u8], PlistValue> {
         match extra_info {
@@ -279,11 +278,12 @@ impl BPlist {
     }
     fn parse_array<'a>(
         data: &'a [u8],
-        input: &'a [u8],
+        offset: usize,
         extra_info: u8,
         trailer: &Trailer,
         offsets: &[usize],
     ) -> IResult<&'a [u8], PlistValue> {
+        let input = &data[offset..];
         let (input, counts) = if extra_info == 0xF {
             Self::parse_count(input)?
         } else {
@@ -297,21 +297,20 @@ impl BPlist {
             _ => panic!("Invalid object ref size"),
         };
         let mut array = Vec::with_capacity(counts);
-        let mut input = input;
-        for object_ref in refs {
-            let obj: PlistValue;
-            (input, obj) = Self::parse_object(data, input, offsets, trailer)?;
+        for object_ref_offset in refs {
+            let (_, obj) = Self::parse_object(data, offsets[object_ref_offset], offsets, trailer)?;
             array.push(obj);
         }
         Ok((input, PlistValue::Array(array)))
     }
     fn parse_dict<'a>(
         data: &'a [u8],
-        input: &'a [u8],
+        offset: usize,
         extra_info: u8,
         trailer: &Trailer,
         offsets: &[usize],
     ) -> IResult<&'a [u8], PlistValue> {
+        let input = &data[offset..];
         let (input, counts) = if extra_info == 0xF {
             Self::parse_count(input)?
         } else {
@@ -325,7 +324,7 @@ impl BPlist {
             8 => count(map(be_u64, |v| v as usize), counts).parse(input)?,
             _ => panic!("Invalid object ref size"),
         };
-        let (input, _) = match trailer.object_ref_size {
+        let (input, value_refs) = match trailer.object_ref_size {
             1 => count(map(be_u8, |v| v as usize), counts).parse(input)?,
             2 => count(map(be_u16, |v| v as usize), counts).parse(input)?,
             4 => count(map(be_u32, |v| v as usize), counts).parse(input)?,
@@ -333,39 +332,39 @@ impl BPlist {
             _ => panic!("Invalid object ref size"),
         };
         let mut dict = BTreeMap::new();
-        let mut key: PlistValue;
         let mut keys = vec![];
-        let mut input = input;
-        for _ in key_refs {
-            (input, key) = Self::parse_object(data, input, offsets, trailer)?;
+        for index in key_refs {
+            let (_, key) = Self::parse_object(data, offsets[index], offsets, trailer)?;
             if let PlistValue::String(key) = key {
                 keys.push(key);
             }
         }
-        for (index, key_string) in keys.into_iter().enumerate() {
-            (input, key) = Self::parse_object(data, input, offsets, trailer)?;
+        for (key_string, value_index) in keys.into_iter().zip(value_refs) {
+            let new_offset = offsets[value_index];
+            let (_, key) = Self::parse_object(data, new_offset, offsets, trailer)?;
             dict.insert(key_string, key);
         }
         Ok((input, PlistValue::Dictionary(dict)))
     }
     fn parse_object<'a>(
         data: &'a [u8],
-        input: &'a [u8],
+        offset: usize,
         offsets: &[usize],
         trailer: &Trailer,
     ) -> IResult<&'a [u8], PlistValue> {
-        let (object_data, (object_type, extra_info)) = Self::parse_header(input)?;
+        let input = &data[offset..];
+        let (input, (object_type, extra_info)) = Self::parse_header(input)?;
         match object_type {
-            0x0 => Self::parse_bool(object_data, extra_info),
-            0x1 => Self::parse_integer(object_data, extra_info),
-            0x2 => Self::parse_float(object_data, extra_info),
-            0x3 => Self::parse_date(object_data, extra_info),
-            0x5 => Self::parse_string(object_data, extra_info),
-            0x6 => Self::parse_data(object_data, extra_info),
-            0xA => Self::parse_array(data, object_data, extra_info, trailer, offsets),
-            0xD => Self::parse_dict(data, object_data, extra_info, trailer, offsets),
+            0x0 => Self::parse_bool(input, extra_info),
+            0x1 => Self::parse_integer(input, extra_info),
+            0x2 => Self::parse_float(input, extra_info),
+            0x3 => Self::parse_date(input, extra_info),
+            0x5 => Self::parse_string(input, extra_info),
+            0x6 => Self::parse_data(input, extra_info),
+            0xA => Self::parse_array(data, offset + 1, extra_info, trailer, offsets),
+            0xD => Self::parse_dict(data, offset + 1, extra_info, trailer, offsets),
             _ => Err(nom::Err::Error(nom::error::Error::new(
-                object_data,
+                input,
                 nom::error::ErrorKind::Switch,
             ))),
         }
