@@ -182,7 +182,11 @@ impl BPlist {
         }
     }
     fn parse_string(input: &[u8], extra_info: u8) -> IResult<&[u8], PlistValue> {
-        let len = extra_info;
+        let (input, len) = if extra_info == 0xF {
+            Self::parse_count(input)?
+        } else {
+            (input, extra_info as usize)
+        };
         let (input, str_bytes) = take(len).parse(input)?;
         let str_value = String::from_utf8_lossy(str_bytes).to_string();
         Ok((input, PlistValue::String(str_value)))
@@ -208,7 +212,7 @@ impl BPlist {
         )?;
         let offset = offset_table[trailer.top_object_offset as usize];
         let object_data = &input[offset..];
-        Self::parse_object(object_data, &offset_table, &trailer)
+        Self::parse_object(&input[..], object_data, &offset_table, &trailer)
     }
     fn parse_float(input: &[u8], extra_info: u8) -> IResult<&[u8], PlistValue> {
         match extra_info {
@@ -274,6 +278,7 @@ impl BPlist {
         }
     }
     fn parse_array<'a>(
+        data: &'a [u8],
         input: &'a [u8],
         extra_info: u8,
         trailer: &Trailer,
@@ -295,12 +300,13 @@ impl BPlist {
         let mut input = input;
         for object_ref in refs {
             let obj: PlistValue;
-            (input, obj) = Self::parse_object(input, offsets, trailer)?;
+            (input, obj) = Self::parse_object(data, input, offsets, trailer)?;
             array.push(obj);
         }
         Ok((input, PlistValue::Array(array)))
     }
     fn parse_dict<'a>(
+        data: &'a [u8],
         input: &'a [u8],
         extra_info: u8,
         trailer: &Trailer,
@@ -331,18 +337,19 @@ impl BPlist {
         let mut keys = vec![];
         let mut input = input;
         for _ in key_refs {
-            (input, key) = Self::parse_object(input, offsets, trailer)?;
+            (input, key) = Self::parse_object(data, input, offsets, trailer)?;
             if let PlistValue::String(key) = key {
                 keys.push(key);
             }
         }
-        for key_string in keys {
-            (input, key) = Self::parse_object(input, offsets, trailer)?;
+        for (index, key_string) in keys.into_iter().enumerate() {
+            (input, key) = Self::parse_object(data, input, offsets, trailer)?;
             dict.insert(key_string, key);
         }
         Ok((input, PlistValue::Dictionary(dict)))
     }
     fn parse_object<'a>(
+        data: &'a [u8],
         input: &'a [u8],
         offsets: &[usize],
         trailer: &Trailer,
@@ -355,8 +362,8 @@ impl BPlist {
             0x3 => Self::parse_date(object_data, extra_info),
             0x5 => Self::parse_string(object_data, extra_info),
             0x6 => Self::parse_data(object_data, extra_info),
-            0xA => Self::parse_array(object_data, extra_info, trailer, offsets),
-            0xD => Self::parse_dict(object_data, extra_info, trailer, offsets),
+            0xA => Self::parse_array(data, object_data, extra_info, trailer, offsets),
+            0xD => Self::parse_dict(data, object_data, extra_info, trailer, offsets),
             _ => Err(nom::Err::Error(nom::error::Error::new(
                 object_data,
                 nom::error::ErrorKind::Switch,

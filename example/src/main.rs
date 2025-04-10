@@ -1,8 +1,9 @@
+use std::cmp::Ordering;
 use std::fs;
 use plist::plist::PlistValue;
 
 fn main() {
-    let data = fs::read("./data/InfoPlist.strings").unwrap();
+    let data = fs::read("./data/Info.plist").unwrap();
     let plist = PlistValue::parse(&data).unwrap();
     println!("{:?}", plist)
 }
