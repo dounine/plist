@@ -1,19 +1,13 @@
+use crate::bplist00::BPlist00;
 use crate::error::Error;
+use crate::xml::XmlPlist;
 use chrono::{DateTime, Utc};
-use nom::branch::alt;
-use nom::bytes::complete::{is_not, tag, take, take_until};
-use nom::character::complete::{char, digit1, multispace0};
-use nom::combinator::{map, map_res, opt, recognize};
-use nom::multi::{count, many0};
-use nom::number::complete::{be_f32, be_f64, be_u8, be_u16, be_u32, be_u64};
-use nom::sequence::{delimited, pair, terminated};
-use nom::{IResult, Parser};
 use std::collections::BTreeMap;
 
 #[derive(Debug, Clone)]
-pub enum PlistValue {
-    Array(Vec<PlistValue>),
-    Dictionary(BTreeMap<String, PlistValue>),
+pub enum Plist {
+    Array(Vec<Plist>),
+    Dictionary(BTreeMap<String, Plist>),
     Boolean(bool),
     Integer(i64),
     Float(f64),
@@ -21,36 +15,38 @@ pub enum PlistValue {
     Date(DateTime<Utc>),
     Data(Vec<u8>),
 }
-#[derive(Debug)]
-struct Trailer {
-    offset_table_offset_size: u8,
-    object_ref_size: u8,
-    num_objects: u64,
-    top_object_offset: u64,
-    offset_table_start: u64,
+impl Plist {
+    pub fn parse(data: &[u8]) -> Result<Self, Error> {
+        if data.starts_with(b"bplist00") {
+            let (_, value) = BPlist00::parse(data).map_err(|e| Error::Error(e.to_string()))?;
+            Ok(value)
+        } else {
+            XmlPlist::parse(data)
+        }
+    }
 }
-impl From<bool> for PlistValue {
+impl From<bool> for Plist {
     fn from(value: bool) -> Self {
-        PlistValue::Boolean(value)
+        Plist::Boolean(value)
     }
 }
-impl From<i64> for PlistValue {
+impl From<i64> for Plist {
     fn from(value: i64) -> Self {
-        PlistValue::Integer(value)
+        Plist::Integer(value)
     }
 }
-impl From<&str> for PlistValue {
+impl From<&str> for Plist {
     fn from(value: &str) -> Self {
-        PlistValue::String(value.to_string())
+        Plist::String(value.to_string())
     }
 }
-impl From<String> for PlistValue {
+impl From<String> for Plist {
     fn from(value: String) -> Self {
-        PlistValue::String(value)
+        Plist::String(value)
     }
 }
 #[allow(dead_code)]
-impl PlistValue {
+impl Plist {
     pub fn to_xml(&self) -> String {
         let mut xml = String::from(
             r#"<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -63,7 +59,7 @@ impl PlistValue {
         xml
     }
     pub fn sort_key(&mut self) {
-        if let PlistValue::Dictionary(dict) = self {
+        if let Plist::Dictionary(dict) = self {
             let mut sorted_keys: Vec<String> = dict.keys().cloned().collect();
             sorted_keys.sort_by(|a, b| a.cmp(b));
             let mut sorted_dict = BTreeMap::new();
@@ -79,17 +75,17 @@ impl PlistValue {
         let indent_str = "\t".repeat(indent);
         let mut xml = String::new();
         match self {
-            PlistValue::Float(value) => {
+            Plist::Float(value) => {
                 xml.push_str(&format!("{}<real>{}</real>\n", indent_str, value))
             }
-            PlistValue::Array(list) => {
+            Plist::Array(list) => {
                 xml.push_str(&format!("{}<array>\n", indent_str));
                 for item in list {
                     xml.push_str(&item.convert_xml(indent + 1));
                 }
                 xml.push_str(&format!("{}</array>\n", indent_str));
             }
-            PlistValue::Dictionary(dict) => {
+            Plist::Dictionary(dict) => {
                 xml.push_str(&format!("{}<dict>\n", indent_str));
                 for (key, value) in dict {
                     xml.push_str(&format!("\t{}<key>{}</key>\n", indent_str, key));
@@ -97,23 +93,23 @@ impl PlistValue {
                 }
                 xml.push_str(&format!("{}</dict>\n", indent_str));
             }
-            PlistValue::Boolean(value) => {
+            Plist::Boolean(value) => {
                 if *value {
                     xml.push_str(&format!("{}<true/>\n", indent_str))
                 } else {
                     xml.push_str(&format!("{}<false/>\n", indent_str))
                 }
             }
-            PlistValue::Integer(value) => {
+            Plist::Integer(value) => {
                 xml.push_str(&format!("{}<integer>{}</integer>\n", indent_str, value))
             }
-            PlistValue::String(value) => {
+            Plist::String(value) => {
                 xml.push_str(&format!("{}<string>{}</string>\n", indent_str, value))
             }
-            PlistValue::Date(value) => {
+            Plist::Date(value) => {
                 xml.push_str(&format!("{}<date>{}</date>\n", indent_str, value))
             }
-            PlistValue::Data(value) => {
+            Plist::Data(value) => {
                 let value = String::from_utf8_lossy(value).to_string();
                 xml.push_str(&format!("{}<data>{}</data>\n", indent_str, value))
             }
@@ -121,362 +117,7 @@ impl PlistValue {
         xml
     }
 }
-pub struct BPlist {}
-impl BPlist {
-    fn parse_bplist_header(input: &[u8]) -> IResult<&[u8], ()> {
-        let (input, _) = tag("bplist00").parse(input)?;
-        Ok((input, ()))
-    }
-    //解析尾部信息
-    fn parse_trailer(input: &[u8]) -> IResult<&[u8], Trailer> {
-        let (
-            input,
-            (
-                _,
-                _,
-                offset_table_offset_size,
-                object_ref_size,
-                num_objects,
-                top_object_offset,
-                offset_table_start,
-            ),
-        ) = (
-            take(4u8), //未使用的4个字节
-            take(2u8), //排序版本
-            be_u8,
-            be_u8,
-            be_u64,
-            be_u64,
-            be_u64,
-        )
-            .parse(input)?;
-        Ok((
-            input,
-            Trailer {
-                offset_table_offset_size,
-                object_ref_size,
-                num_objects,
-                top_object_offset,
-                offset_table_start,
-            },
-        ))
-    }
-    //解析对象头
-    fn parse_header(input: &[u8]) -> IResult<&[u8], (u8, u8)> {
-        let (input, header) = be_u8.parse(input)?;
-        let object_type = (header >> 4) & 0x0F;
-        let extra_info = header & 0x0F;
-        Ok((input, (object_type, extra_info)))
-    }
-    fn parse_integer(input: &[u8], extra_info: u8) -> IResult<&[u8], PlistValue> {
-        let size = 1 << extra_info;
-        match size {
-            1 => map(be_u8, |v| PlistValue::Integer(v as i64)).parse(input),
-            2 => map(be_u16, |v| PlistValue::Integer(v as i64)).parse(input),
-            4 => map(be_u32, |v| PlistValue::Integer(v as i64)).parse(input),
-            8 => map(be_u64, |v| PlistValue::Integer(v as i64)).parse(input),
-            _ => Err(nom::Err::Error(nom::error::Error::new(
-                input,
-                nom::error::ErrorKind::Switch,
-            ))),
-        }
-    }
-    fn parse_string(input: &[u8], extra_info: u8) -> IResult<&[u8], PlistValue> {
-        let (input, len) = if extra_info == 0xF {
-            Self::parse_count(input)?
-        } else {
-            (input, extra_info as usize)
-        };
-        let (input, str_bytes) = take(len).parse(input)?;
-        let str_value = String::from_utf8_lossy(str_bytes).to_string();
-        Ok((input, PlistValue::String(str_value)))
-    }
-    fn parse_offset_table(input: &[u8], counts: u64, int_size: u8) -> IResult<&[u8], Vec<usize>> {
-        let counts = counts as usize;
-        match int_size {
-            1 => count(map(be_u8, |v| v as usize), counts).parse(input),
-            2 => count(map(be_u16, |v| v as usize), counts).parse(input),
-            4 => count(map(be_u32, |v| v as usize), counts).parse(input),
-            8 => count(map(be_u64, |v| v as usize), counts).parse(input),
-            _ => panic!("Invalid offset int size"),
-        }
-    }
-    pub fn parse(input: &[u8]) -> IResult<&[u8], PlistValue> {
-        let (_, _) = Self::parse_bplist_header(input)?;
-        let (_, trailer) = Self::parse_trailer(&input[input.len() - 32..])?;
-        let offset_table_start = trailer.offset_table_start as usize;
-        let (_, offsets) = Self::parse_offset_table(
-            &input[offset_table_start..],
-            trailer.num_objects,
-            trailer.offset_table_offset_size,
-        )?;
-        let offset = offsets[trailer.top_object_offset as usize];
-        Self::parse_object(input, offset, &offsets, &trailer)
-    }
-    fn parse_float(input: &[u8], extra_info: u8) -> IResult<&[u8], PlistValue> {
-        match extra_info {
-            0 => map(be_f32, |v| PlistValue::Float(v as f64)).parse(input),
-            2 => map(be_f32, |v| PlistValue::Float(v as f64)).parse(input),
-            3 => map(be_f64, |v| PlistValue::Float(v as f64)).parse(input),
-            _ => Err(nom::Err::Error(nom::error::Error::new(
-                input,
-                nom::error::ErrorKind::Switch,
-            ))),
-        }
-    }
-    fn parse_bool(input: &[u8], extra_info: u8) -> IResult<&[u8], PlistValue> {
-        Ok((
-            input,
-            match extra_info {
-                0x00 => PlistValue::Boolean(false),
-                0x08 => PlistValue::Boolean(false),
-                0x09 => PlistValue::Boolean(true),
-                _ => {
-                    return Err(nom::Err::Failure(nom::error::Error::new(
-                        input,
-                        nom::error::ErrorKind::TooLarge,
-                    )));
-                }
-            },
-        ))
-    }
-    fn parse_date(input: &[u8], _extra_info: u8) -> IResult<&[u8], PlistValue> {
-        let (input, timestamp) = recognize(be_f64).parse(input)?;
-        let bytes: [u8; 8] = timestamp.try_into().unwrap();
-        let seconds_since_2001 = f64::from_be_bytes(bytes);
-        let unix_timestamp = seconds_since_2001 + 978307200.0;
 
-        // 5. 转换为 DateTime<Utc>
-        let naive =
-            DateTime::from_timestamp(unix_timestamp as i64, (unix_timestamp.fract() * 1e9) as u32)
-                .unwrap();
-        let datetime = DateTime::<Utc>::from(naive);
-        Ok((input, PlistValue::Date(datetime)))
-    }
-    fn parse_data(input: &[u8], extra_info: u8) -> IResult<&[u8], PlistValue> {
-        let (input, len) = if extra_info == 0xF {
-            Self::parse_count(input)?
-        } else {
-            (input, extra_info as usize)
-        };
-        let (input, data) = take(len).parse(input)?;
-        Ok((input, PlistValue::Data(data.to_vec())))
-    }
-    fn parse_count(input: &[u8]) -> IResult<&[u8], usize> {
-        let (input, header) = be_u8.parse(input)?;
-        let byte_count = 1 << (header & 0x0F);
-        match byte_count {
-            1 => map(be_u8, |v| v as usize).parse(input),
-            2 => map(be_u16, |v| v as usize).parse(input),
-            4 => map(be_u32, |v| v as usize).parse(input),
-            8 => map(be_u64, |v| v as usize).parse(input),
-            _ => Err(nom::Err::Failure(nom::error::Error::new(
-                input,
-                nom::error::ErrorKind::TooLarge,
-            ))),
-        }
-    }
-    fn parse_array<'a>(
-        data: &'a [u8],
-        offset: usize,
-        extra_info: u8,
-        trailer: &Trailer,
-        offsets: &[usize],
-    ) -> IResult<&'a [u8], PlistValue> {
-        let input = &data[offset..];
-        let (input, counts) = if extra_info == 0xF {
-            Self::parse_count(input)?
-        } else {
-            (input, extra_info as usize)
-        };
-        let (input, refs) = match trailer.object_ref_size {
-            1 => count(map(be_u8, |v| v as usize), counts).parse(input)?,
-            2 => count(map(be_u16, |v| v as usize), counts).parse(input)?,
-            4 => count(map(be_u32, |v| v as usize), counts).parse(input)?,
-            8 => count(map(be_u64, |v| v as usize), counts).parse(input)?,
-            _ => panic!("Invalid object ref size"),
-        };
-        let mut array = Vec::with_capacity(counts);
-        for object_ref_offset in refs {
-            let (_, obj) = Self::parse_object(data, offsets[object_ref_offset], offsets, trailer)?;
-            array.push(obj);
-        }
-        Ok((input, PlistValue::Array(array)))
-    }
-    fn parse_dict<'a>(
-        data: &'a [u8],
-        offset: usize,
-        extra_info: u8,
-        trailer: &Trailer,
-        offsets: &[usize],
-    ) -> IResult<&'a [u8], PlistValue> {
-        let input = &data[offset..];
-        let (input, counts) = if extra_info == 0xF {
-            Self::parse_count(input)?
-        } else {
-            (input, extra_info as usize)
-        };
-        //先解析所有key refs
-        let (input, key_refs) = match trailer.object_ref_size {
-            1 => count(map(be_u8, |v| v as usize), counts).parse(input)?,
-            2 => count(map(be_u16, |v| v as usize), counts).parse(input)?,
-            4 => count(map(be_u32, |v| v as usize), counts).parse(input)?,
-            8 => count(map(be_u64, |v| v as usize), counts).parse(input)?,
-            _ => panic!("Invalid object ref size"),
-        };
-        let (input, value_refs) = match trailer.object_ref_size {
-            1 => count(map(be_u8, |v| v as usize), counts).parse(input)?,
-            2 => count(map(be_u16, |v| v as usize), counts).parse(input)?,
-            4 => count(map(be_u32, |v| v as usize), counts).parse(input)?,
-            8 => count(map(be_u64, |v| v as usize), counts).parse(input)?,
-            _ => panic!("Invalid object ref size"),
-        };
-        let mut dict = BTreeMap::new();
-        let mut keys = vec![];
-        for index in key_refs {
-            let (_, key) = Self::parse_object(data, offsets[index], offsets, trailer)?;
-            if let PlistValue::String(key) = key {
-                keys.push(key);
-            }
-        }
-        for (key_string, value_index) in keys.into_iter().zip(value_refs) {
-            let new_offset = offsets[value_index];
-            let (_, key) = Self::parse_object(data, new_offset, offsets, trailer)?;
-            dict.insert(key_string, key);
-        }
-        Ok((input, PlistValue::Dictionary(dict)))
-    }
-    fn parse_object<'a>(
-        data: &'a [u8],
-        offset: usize,
-        offsets: &[usize],
-        trailer: &Trailer,
-    ) -> IResult<&'a [u8], PlistValue> {
-        let input = &data[offset..];
-        let (input, (object_type, extra_info)) = Self::parse_header(input)?;
-        match object_type {
-            0x0 => Self::parse_bool(input, extra_info),
-            0x1 => Self::parse_integer(input, extra_info),
-            0x2 => Self::parse_float(input, extra_info),
-            0x3 => Self::parse_date(input, extra_info),
-            0x5 => Self::parse_string(input, extra_info),
-            0x6 => Self::parse_data(input, extra_info),
-            0xA => Self::parse_array(data, offset + 1, extra_info, trailer, offsets),
-            0xD => Self::parse_dict(data, offset + 1, extra_info, trailer, offsets),
-            _ => Err(nom::Err::Error(nom::error::Error::new(
-                input,
-                nom::error::ErrorKind::Switch,
-            ))),
-        }
-    }
-}
-impl PlistValue {
-    fn parse_key(input: &str) -> IResult<&str, &str> {
-        let (input, _) = multispace0(input)?;
-        delimited(tag("<key>"), take_until("<"), tag("</key>")).parse(input)
-    }
-    fn parse_string(input: &str) -> IResult<&str, String> {
-        delimited(tag("<string>"), take_until("<"), tag("</string>"))
-            .parse(input)
-            .map(|(next_input, result)| (next_input, result.to_string()))
-    }
-    fn parse_float(input: &str) -> IResult<&str, f64> {
-        delimited(tag("<real>"), take_until("<"), tag("</real>"))
-            .parse(input)
-            .map(|(next_input, result)| (next_input, result.parse().unwrap()))
-    }
-    fn parse_date(input: &str) -> IResult<&str, DateTime<Utc>> {
-        delimited(tag("<date>"), take_until("<"), tag("</date>"))
-            .parse(input)
-            .map(|(next_input, result)| {
-                (
-                    next_input,
-                    DateTime::parse_from_rfc3339(result).unwrap().into(),
-                )
-            })
-    }
-    fn parse_data(input: &str) -> IResult<&str, Vec<u8>> {
-        delimited(tag("<data>"), take_until("<"), tag("</data>"))
-            .parse(input)
-            .map(|(next_input, result)| (next_input, result.as_bytes().to_vec()))
-    }
-    fn parse_integer(input: &str) -> IResult<&str, i64> {
-        let (input, _) = multispace0(input)?;
-        let (input, result) = map_res(
-            delimited(
-                tag("<integer>"),
-                recognize(pair(opt(alt((char('-'), char('+')))), digit1)),
-                // recognize(preceded(opt(char('-')), digit1)),
-                tag("</integer>"),
-            ),
-            |s: &str| s.parse(),
-        )
-        .parse(input)?;
-        Ok((input, result))
-    }
-    fn parse_boolean(input: &str) -> IResult<&str, bool> {
-        let (input, _) = multispace0(input)?;
-        alt((
-            map(tag("<true/>"), |_| true),
-            map(tag("<false/>"), |_| false),
-        ))
-        .parse(input)
-    }
-
-    fn parse_dict(input: &str) -> IResult<&str, BTreeMap<String, Self>> {
-        let (input, _) = multispace0(input)?;
-        let (input, _) = tag("<dict>")(input)?;
-        let (input, values) = many0((Self::parse_key, Self::parse_value)).parse(input)?;
-        let mut dict = BTreeMap::new();
-        for (key, value) in values {
-            dict.insert(key.to_string(), value);
-        }
-        let (input, _) = multispace0(input)?;
-        let (input, _) = tag("</dict>")(input)?;
-        Ok((input, dict))
-    }
-    fn parse_value(input: &str) -> IResult<&str, Self> {
-        let (input, _) = multispace0(input)?;
-        if input.starts_with("<string>") {
-            map(Self::parse_string, Self::String).parse(input)
-        } else if input.starts_with("<real>") {
-            map(Self::parse_float, Self::Float).parse(input)
-        } else if input.starts_with("<date>") {
-            map(Self::parse_date, Self::Date).parse(input)
-        } else if input.starts_with("<data>") {
-            map(Self::parse_data, Self::Data).parse(input)
-        } else if input.starts_with("<integer>") {
-            map(Self::parse_integer, Self::Integer).parse(input)
-        } else if input.starts_with("<true") || input.starts_with("<false") {
-            map(Self::parse_boolean, Self::Boolean).parse(input)
-        } else if input.starts_with("<dict>") {
-            map(Self::parse_dict, Self::Dictionary).parse(input)
-        } else {
-            map(Self::parse_array, Self::Array).parse(input)
-        }
-    }
-    fn parse_array(input: &str) -> IResult<&str, Vec<Self>> {
-        let (input, _) = (multispace0, tag("<array>"), multispace0).parse(input)?;
-        let (input, values) = many0(Self::parse_value).parse(input)?;
-        let (input, _) = (multispace0, tag("</array>"), multispace0).parse(input)?;
-        Ok((input, values))
-    }
-    pub fn parse(input: &[u8]) -> Result<Self, Error> {
-        //判断是不是bplist00
-        if input.starts_with(b"bplist00") {
-            let (_, value) = BPlist::parse(input).map_err(|e| Error::Error(e.to_string()))?;
-            Ok(value)
-        } else {
-            let input = String::from_utf8_lossy(input).to_string();
-            let input = input.as_str();
-            let (input, _) = take_until("<plist")(input)?; //skip <?xml version="1.0" encoding="UTF-8"?>
-            let (input, _) = terminated(is_not(">"), tag(">")).parse(input)?; //skip <plist ..>
-            let (input, value) = map(Self::parse_dict, Self::Dictionary).parse(input)?;
-            let (_, _) = (multispace0, tag("</plist>"), multispace0).parse(input)?;
-            Ok(value)
-        }
-    }
-}
 #[cfg(test)]
 mod bplist_test {
     use crate::plist::BPlist;
@@ -491,7 +132,7 @@ mod bplist_test {
 }
 #[cfg(test)]
 mod plist_test {
-    use crate::plist::PlistValue;
+    use crate::plist::Plist;
 
     #[test]
     fn test_parse() {
@@ -598,9 +239,9 @@ mod plist_test {
 </dict>
 </plist>
     "#;
-        let mut value = PlistValue::parse(xml.as_bytes()).unwrap();
-        if let PlistValue::Dictionary(dict) = &mut value {
-            if let Some(PlistValue::Boolean(value)) = dict.get("hello") {
+        let mut value = Plist::parse(xml.as_bytes()).unwrap();
+        if let Plist::Dictionary(dict) = &mut value {
+            if let Some(Plist::Boolean(value)) = dict.get("hello") {
                 assert_eq!(*value, true);
             }
         }
