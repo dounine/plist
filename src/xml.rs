@@ -1,15 +1,14 @@
 use crate::error::Error;
 use crate::plist::Plist;
 use chrono::{DateTime, Utc};
-use nom::IResult;
-use nom::Parser;
 use nom::branch::alt;
 use nom::bytes::complete::{is_not, tag, take_until};
 use nom::character::complete::{char, digit1, multispace0};
 use nom::combinator::{map, map_res, opt, recognize};
 use nom::multi::many0;
 use nom::sequence::{delimited, pair, terminated};
-use std::collections::BTreeMap;
+use nom::IResult;
+use nom::Parser;
 
 pub struct XmlPlist {}
 impl XmlPlist {
@@ -40,7 +39,7 @@ impl XmlPlist {
     fn parse_data(input: &str) -> IResult<&str, Vec<u8>> {
         delimited(tag("<data>"), take_until("<"), tag("</data>"))
             .parse(input)
-            .map(|(next_input, result)| (next_input, result.as_bytes().to_vec()))
+            .map(|(next_input, result)| (next_input, result.trim().as_bytes().to_vec()))
     }
     fn parse_integer(input: &str) -> IResult<&str, i64> {
         let (input, _) = multispace0(input)?;

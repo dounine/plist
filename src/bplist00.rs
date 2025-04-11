@@ -6,7 +6,6 @@ use nom::bytes::complete::{tag, take};
 use nom::combinator::{map, recognize};
 use nom::multi::count;
 use nom::number::complete::{be_f32, be_f64, be_u8, be_u16, be_u32, be_u64};
-use std::collections::BTreeMap;
 
 #[derive(Debug)]
 struct Trailer {
@@ -149,15 +148,6 @@ impl BPlist00 {
         let datetime = DateTime::<Utc>::from(naive);
         Ok((input, Plist::Date(datetime)))
     }
-    fn parse_data(input: &[u8], extra_info: u8) -> IResult<&[u8], Plist> {
-        let (input, len) = if extra_info == 0xF {
-            Self::parse_count(input)?
-        } else {
-            (input, extra_info as usize)
-        };
-        let (input, data) = take(len).parse(input)?;
-        Ok((input, Plist::Data(data.to_vec())))
-    }
     fn parse_count(input: &[u8]) -> IResult<&[u8], usize> {
         let (input, header) = be_u8.parse(input)?;
         let byte_count = 1 << (header & 0x0F);
@@ -171,6 +161,15 @@ impl BPlist00 {
                 nom::error::ErrorKind::TooLarge,
             ))),
         }
+    }
+    fn parse_data(input: &[u8], extra_info: u8) -> IResult<&[u8], Plist> {
+        let (input, len) = if extra_info == 0xF {
+            Self::parse_count(input)?
+        } else {
+            (input, extra_info as usize)
+        };
+        let (input, data) = take(len).parse(input)?;
+        Ok((input, Plist::Data(data.to_vec())))
     }
     fn parse_array<'a>(
         data: &'a [u8],
@@ -249,15 +248,14 @@ impl BPlist00 {
         trailer: &Trailer,
     ) -> IResult<&'a [u8], Plist> {
         let input = &data[offset..];
-        let input2 = &data[offset..];
         let (input, (object_type, extra_info)) = Self::parse_header(input)?;
         match object_type {
             0x0 => Self::parse_bool(input, extra_info),
             0x1 => Self::parse_integer(input, extra_info),
             0x2 => Self::parse_float(input, extra_info),
             0x3 => Self::parse_date(input, extra_info),
+            0x4 => Self::parse_data(input, extra_info),
             0x5 => Self::parse_string(input, extra_info),
-            0x6 => Self::parse_data(input, extra_info),
             0xA => Self::parse_array(data, offset + 1, extra_info, trailer, offsets),
             0xD => Self::parse_dict(data, offset + 1, extra_info, trailer, offsets),
             _ => Err(nom::Err::Error(nom::error::Error::new(

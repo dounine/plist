@@ -1,13 +1,9 @@
 use crate::error::Error;
 use crate::plist::Plist;
 use chrono::{DateTime, Utc};
-use nom::combinator::map;
-use nom::number::complete::{be_f32, be_f64, be_u8};
-use nom::{AsBytes, IResult, Parser};
 use std::io::{Cursor, Write};
 
 pub(crate) struct BPlistWrite {
-    // object_data: Vec<Vec<u8>>, // 所有对象的二进制数据
     objects: u64,
     offsets: Vec<u64>, // 每个对象的偏移量
     ref_size: u8,      // 对象引用大小 (1/2/4/8字节)
@@ -67,12 +63,6 @@ impl BPlistWrite {
             (bytes, index)
         };
         Ok((bytes, self.serialize_ref(index)))
-    }
-    fn parse_header(input: &[u8]) -> IResult<&[u8], (u8, u8)> {
-        let (input, header) = be_u8.parse(input)?;
-        let object_type = (header >> 4) & 0x0F;
-        let extra_info = header & 0x0F;
-        Ok((input, (object_type, extra_info)))
     }
     fn serialize_object<'a>(
         &mut self,
@@ -152,7 +142,14 @@ impl BPlistWrite {
                 buffer.extend(bytes);
                 list.push(buffer);
             }
-            Plist::Data(_) => {}
+            Plist::Data(value) => {
+                let mut buffer = vec![];
+                let (marker, bytes) = self.serialize_data(0x4, value);
+                buffer.push(marker);
+                buffer.extend(bytes);
+                buffer.extend(value);
+                list.push(buffer);
+            }
         }
         Ok(list)
     }
@@ -190,7 +187,7 @@ impl BPlistWrite {
             1 => vec![index as u8],
             2 => (index as u16).to_be_bytes().to_vec(),
             4 => (index as u32).to_be_bytes().to_vec(),
-            8 => (index).to_be_bytes().to_vec(),
+            8 => index.to_be_bytes().to_vec(),
             _ => panic!("Invalid ref size"),
         }
     }
@@ -222,6 +219,15 @@ impl BPlistWrite {
             _ => panic!("Invalid count"),
         };
         bytes
+    }
+    fn serialize_data(&self, code: u8, value: &Vec<u8>) -> (u8, Vec<u8>) {
+        let len = value.len();
+        if len < 0xF {
+            (code | len as u8, vec![])
+        } else {
+            let len_bytes = self.serialize_count(len);
+            (code | 0x0F, len_bytes)
+        }
     }
     fn serialize_date(&self, code: u8, value: DateTime<Utc>) -> (u8, Vec<u8>) {
         let unix_timestamp = value.timestamp() as f64 + value.timestamp_subsec_nanos() as f64 / 1e9;

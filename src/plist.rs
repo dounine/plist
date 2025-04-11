@@ -1,10 +1,8 @@
 use crate::bplist00::BPlist00;
 use crate::error::Error;
-use crate::write::bplist_write;
 use crate::write::bplist_write::BPlistWrite;
 use crate::xml::XmlPlist;
 use chrono::{DateTime, Utc};
-use std::collections::BTreeMap;
 use std::io::Cursor;
 
 #[derive(Debug, Clone)]
@@ -51,12 +49,12 @@ impl From<String> for Plist {
 #[allow(dead_code)]
 impl Plist {
     pub fn to_binary(&self) -> Result<Vec<u8>, Error> {
-        let mut plist_write = BPlistWrite::new();
+        let plist_write = BPlistWrite::new();
         let mut output = Cursor::new(vec![]);
         plist_write.write(self, &mut output)?;
         Ok(output.into_inner())
     }
-    pub fn to_xml(&self) -> String {
+    pub fn to_xml(self) -> String {
         let mut xml = String::from(
             r#"<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">

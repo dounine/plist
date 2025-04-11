@@ -1,6 +1,3 @@
-use nom::error::Error;
-use nom::number::complete::be_u8;
-use nom::{AsBytes, IResult, Parser};
 use plist::plist::Plist;
 use std::fs;
 
