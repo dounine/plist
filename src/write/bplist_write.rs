@@ -1,6 +1,7 @@
 use crate::error::Error;
 use crate::plist::Plist;
-use nom::number::complete::be_u8;
+use nom::combinator::map;
+use nom::number::complete::{be_f32, be_f64, be_u8};
 use nom::{AsBytes, IResult, Parser};
 use std::io::{Cursor, Write};
 
@@ -56,9 +57,7 @@ impl BPlistWrite {
         let index = self.objects;
         self.objects += 1;
         let bytes = self.serialize_object(value, mem_bytes)?;
-        let exit_bytes = mem_bytes
-            .iter()
-            .find(|(_, d)| **d == bytes);
+        let exit_bytes = mem_bytes.iter().find(|(_, d)| **d == bytes);
         let (bytes, index) = if let Some((key_idx, _)) = exit_bytes {
             self.objects -= 1;
             (vec![], *key_idx)
@@ -129,7 +128,13 @@ impl BPlistWrite {
                 buffer.extend(bytes);
                 list.push(buffer);
             }
-            Plist::Float(_) => {}
+            Plist::Float(value) => {
+                let mut buffer = vec![];
+                let (marker, bytes) = self.serialize_float(0x2, *value);
+                buffer.push(marker);
+                buffer.extend(bytes);
+                list.push(buffer);
+            }
             Plist::String(value) => {
                 let mut buffer = vec![];
                 let bytes = value.as_bytes();
@@ -211,6 +216,18 @@ impl BPlistWrite {
         };
         bytes
     }
+    fn serialize_float(&self, code: u8, value: f64) -> (u8, Vec<u8>) {
+        let as_f32 = value as f32;
+        let is_lossless = (as_f32 as f64) == value;
+        let (extra_info, bytes) = if is_lossless && (value == 0.0 || value.abs() <= f32::MAX as f64) {
+            // 使用 32-bit 浮点数（无精度丢失）
+            (0x0, as_f32.to_be_bytes().to_vec())
+        } else {
+            // 必须使用 64-bit 浮点数
+            (0x3, value.to_be_bytes().to_vec())
+        };
+        ((code << 4) | (extra_info & 0x0F), bytes)
+    }
     fn serialize_integer(&self, code: u8, value: i64) -> (u8, Vec<u8>) {
         let code = code << 4;
         let (extra_info, bytes) = if value >= 0 {
@@ -224,7 +241,6 @@ impl BPlistWrite {
             panic!("Negative integers not implemented");
         };
         (code | (extra_info & 0x0F), bytes)
-        // let (marker, len_bytes) = self.serialize_length(0x5, bytes.len());
     }
 
     fn calculate_sizes(&mut self) {

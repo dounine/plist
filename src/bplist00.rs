@@ -249,6 +249,7 @@ impl BPlist00 {
         trailer: &Trailer,
     ) -> IResult<&'a [u8], Plist> {
         let input = &data[offset..];
+        let input2 = &data[offset..];
         let (input, (object_type, extra_info)) = Self::parse_header(input)?;
         match object_type {
             0x0 => Self::parse_bool(input, extra_info),
