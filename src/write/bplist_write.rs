@@ -1,5 +1,6 @@
 use crate::error::Error;
 use crate::plist::Plist;
+use chrono::{DateTime, Utc};
 use nom::combinator::map;
 use nom::number::complete::{be_f32, be_f64, be_u8};
 use nom::{AsBytes, IResult, Parser};
@@ -144,7 +145,13 @@ impl BPlistWrite {
                 buffer.extend(bytes);
                 list.push(buffer);
             }
-            Plist::Date(_) => {}
+            Plist::Date(value) => {
+                let mut buffer = vec![];
+                let (marker, bytes) = self.serialize_date(0x3, *value);
+                buffer.push(marker);
+                buffer.extend(bytes);
+                list.push(buffer);
+            }
             Plist::Data(_) => {}
         }
         Ok(list)
@@ -216,10 +223,16 @@ impl BPlistWrite {
         };
         bytes
     }
+    fn serialize_date(&self, code: u8, value: DateTime<Utc>) -> (u8, Vec<u8>) {
+        let unix_timestamp = value.timestamp() as f64 + value.timestamp_subsec_nanos() as f64 / 1e9;
+        let seconds_since_2001 = unix_timestamp - 978_307_200.0;
+        (code << 4 | 3, seconds_since_2001.to_be_bytes().to_vec())
+    }
     fn serialize_float(&self, code: u8, value: f64) -> (u8, Vec<u8>) {
         let as_f32 = value as f32;
         let is_lossless = (as_f32 as f64) == value;
-        let (extra_info, bytes) = if is_lossless && (value == 0.0 || value.abs() <= f32::MAX as f64) {
+        let (extra_info, bytes) = if is_lossless && (value == 0.0 || value.abs() <= f32::MAX as f64)
+        {
             // 使用 32-bit 浮点数（无精度丢失）
             (0x0, as_f32.to_be_bytes().to_vec())
         } else {
