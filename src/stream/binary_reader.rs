@@ -16,8 +16,8 @@ struct Trailer {
     offset_table_start: u64,
 }
 #[derive(Debug)]
-pub struct BPlist00 {}
-impl BPlist00 {
+pub struct BinaryReader {}
+impl BinaryReader {
     fn parse_bplist_header(input: &[u8]) -> IResult<&[u8], ()> {
         let (input, _) = tag("bplist00").parse(input)?;
         Ok((input, ()))

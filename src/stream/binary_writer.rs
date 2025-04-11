@@ -3,15 +3,15 @@ use crate::plist::Plist;
 use chrono::{DateTime, Utc};
 use std::io::{Cursor, Write};
 
-pub(crate) struct BPlistWrite {
+pub(crate) struct BinaryWriter {
     objects: u64,
     offsets: Vec<u64>, // 每个对象的偏移量
     ref_size: u8,      // 对象引用大小 (1/2/4/8字节)
     offset_size: u8,   // 偏移表条目大小 (1/2/4/8字节)
 }
-impl BPlistWrite {
+impl BinaryWriter {
     pub fn new() -> Self {
-        BPlistWrite {
+        BinaryWriter {
             objects: 0,
             // object_data: vec![],
             offsets: vec![],

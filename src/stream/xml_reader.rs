@@ -10,8 +10,8 @@ use nom::sequence::{delimited, pair, terminated};
 use nom::IResult;
 use nom::Parser;
 
-pub struct XmlPlist {}
-impl XmlPlist {
+pub struct XmlReader {}
+impl XmlReader {
     fn parse_key(input: &str) -> IResult<&str, &str> {
         let (input, _) = multispace0(input)?;
         delimited(tag("<key>"), take_until("<"), tag("</key>")).parse(input)
