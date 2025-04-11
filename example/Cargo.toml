@@ -5,3 +5,4 @@ edition = "2024"
 
 [dependencies]
 plist = { path = ".." }
+nom = "8.0.0"

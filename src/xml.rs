@@ -65,13 +65,13 @@ impl XmlPlist {
         .parse(input)
     }
 
-    fn parse_dict(input: &str) -> IResult<&str, BTreeMap<String, Plist>> {
+    fn parse_dict(input: &str) -> IResult<&str, Vec<(String, Plist)>> {
         let (input, _) = multispace0(input)?;
         let (input, _) = tag("<dict>")(input)?;
         let (input, values) = many0((Self::parse_key, Self::parse_value)).parse(input)?;
-        let mut dict = BTreeMap::new();
+        let mut dict = vec![];
         for (key, value) in values {
-            dict.insert(key.to_string(), value);
+            dict.push((key.to_string(), value));
         }
         let (input, _) = multispace0(input)?;
         let (input, _) = tag("</dict>")(input)?;

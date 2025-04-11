@@ -1,11 +1,11 @@
 use crate::plist::Plist;
 use chrono::{DateTime, Utc};
+use nom::IResult;
+use nom::Parser;
 use nom::bytes::complete::{tag, take};
 use nom::combinator::{map, recognize};
 use nom::multi::count;
-use nom::number::complete::{be_f32, be_f64, be_u16, be_u32, be_u64, be_u8};
-use nom::IResult;
-use nom::Parser;
+use nom::number::complete::{be_f32, be_f64, be_u8, be_u16, be_u32, be_u64};
 use std::collections::BTreeMap;
 
 #[derive(Debug)]
@@ -227,7 +227,7 @@ impl BPlist00 {
             8 => count(map(be_u64, |v| v as usize), counts).parse(input)?,
             _ => panic!("Invalid object ref size"),
         };
-        let mut dict = BTreeMap::new();
+        let mut dict = vec![];
         let mut keys = vec![];
         for index in key_refs {
             let (_, key) = Self::parse_object(data, offsets[index], offsets, trailer)?;
@@ -238,7 +238,7 @@ impl BPlist00 {
         for (key_string, value_index) in keys.into_iter().zip(value_refs) {
             let new_offset = offsets[value_index];
             let (_, key) = Self::parse_object(data, new_offset, offsets, trailer)?;
-            dict.insert(key_string, key);
+            dict.push((key_string, key));
         }
         Ok((input, Plist::Dictionary(dict)))
     }

@@ -1,13 +1,16 @@
 use crate::bplist00::BPlist00;
 use crate::error::Error;
+use crate::write::bplist_write;
+use crate::write::bplist_write::BPlistWrite;
 use crate::xml::XmlPlist;
 use chrono::{DateTime, Utc};
 use std::collections::BTreeMap;
+use std::io::Cursor;
 
 #[derive(Debug, Clone)]
 pub enum Plist {
     Array(Vec<Plist>),
-    Dictionary(BTreeMap<String, Plist>),
+    Dictionary(Vec<(String, Plist)>),
     Boolean(bool),
     Integer(i64),
     Float(f64),
@@ -47,6 +50,12 @@ impl From<String> for Plist {
 }
 #[allow(dead_code)]
 impl Plist {
+    pub fn to_binary(&self) -> Result<Vec<u8>, Error> {
+        let mut plist_write = BPlistWrite::new();
+        let mut output = Cursor::new(vec![]);
+        plist_write.write(self, &mut output)?;
+        Ok(output.into_inner())
+    }
     pub fn to_xml(&self) -> String {
         let mut xml = String::from(
             r#"<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -60,24 +69,23 @@ impl Plist {
     }
     pub fn sort_key(&mut self) {
         if let Plist::Dictionary(dict) = self {
-            let mut sorted_keys: Vec<String> = dict.keys().cloned().collect();
-            sorted_keys.sort_by(|a, b| a.cmp(b));
-            let mut sorted_dict = BTreeMap::new();
-            for key in sorted_keys {
-                if let Some(value) = dict.remove(&key) {
-                    sorted_dict.insert(key, value);
-                }
-            }
-            *dict = sorted_dict;
+            dict.sort_by(|(a_key, _), (b_key, _)| a_key.cmp(b_key));
+            // let mut sorted_keys: Vec<String> = dict.iter().map(|(k, v)| k).cloned().collect();
+            // sorted_keys.sort_by(|a, b| a.cmp(b));
+            // let mut sorted_dict = vec![]; // BTreeMap::new();
+            // for key in sorted_keys {
+            //     if let Some(value) = dict.pop_if(|(k, v)| *k == key) {
+            //         sorted_dict.push(value);
+            //     }
+            // }
+            // *dict = sorted_dict;
         }
     }
     fn convert_xml(&self, indent: usize) -> String {
         let indent_str = "\t".repeat(indent);
         let mut xml = String::new();
         match self {
-            Plist::Float(value) => {
-                xml.push_str(&format!("{}<real>{}</real>\n", indent_str, value))
-            }
+            Plist::Float(value) => xml.push_str(&format!("{}<real>{}</real>\n", indent_str, value)),
             Plist::Array(list) => {
                 xml.push_str(&format!("{}<array>\n", indent_str));
                 for item in list {
@@ -106,9 +114,7 @@ impl Plist {
             Plist::String(value) => {
                 xml.push_str(&format!("{}<string>{}</string>\n", indent_str, value))
             }
-            Plist::Date(value) => {
-                xml.push_str(&format!("{}<date>{}</date>\n", indent_str, value))
-            }
+            Plist::Date(value) => xml.push_str(&format!("{}<date>{}</date>\n", indent_str, value)),
             Plist::Data(value) => {
                 let value = String::from_utf8_lossy(value).to_string();
                 xml.push_str(&format!("{}<data>{}</data>\n", indent_str, value))
