@@ -195,13 +195,8 @@ impl BinaryWriter {
         }
     }
     fn serialize_count(&self, count: usize) -> Vec<u8> {
-        let bytes_needed: i32 = match count {
-            0..=0xFF => 1,
-            0x100..=0xFFFF => 2,
-            0x10000..=0xFFFFFFFF => 4,
-            _ => 8,
-        };
-        let type_byte = (bytes_needed << 4) as u8;
+        let bytes_needed: u8 = self.convert_length(count as u64);
+        let type_byte = bytes_needed << 4;
         let mut bytes = match bytes_needed {
             1 => vec![count as u8],
             2 => (count as u16).to_be_bytes().to_vec(),
@@ -253,21 +248,18 @@ impl BinaryWriter {
         };
         (code | (extra_info & 0x0F), bytes)
     }
-
+    fn convert_length(&self, value: u64) -> u8 {
+        match value {
+            0..=0xFF => 1,
+            0x100..=0xFFFF => 2,
+            0x10000..=0xFFFFFFFF => 4,
+            _ => 8,
+        }
+    }
     fn calculate_sizes(&mut self) {
         let max_ref = self.objects;
-        self.ref_size = match max_ref {
-            0..=0xFF => 1,
-            0x100..=0xFFFF => 2,
-            0x10000..=0xFFFFFFFF => 4,
-            _ => 8,
-        };
+        self.ref_size = self.convert_length(max_ref);
         let max_offset = *self.offsets.last().unwrap_or(&0);
-        self.offset_size = match max_offset {
-            0..=0xFF => 1,
-            0x100..=0xFFFF => 2,
-            0x10000..=0xFFFFFFFF => 4,
-            _ => 8,
-        };
+        self.offset_size = self.convert_length(max_offset);
     }
 }
