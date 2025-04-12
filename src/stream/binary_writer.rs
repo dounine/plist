@@ -69,10 +69,10 @@ impl BinaryWriter {
         value: &Plist,
         mem_bytes: &'a mut Vec<(u64, Vec<Vec<u8>>)>,
     ) -> Result<Vec<Vec<u8>>, Error> {
+        let mut buffer = vec![];
         let mut list = vec![];
         match value {
             Plist::Array(value) => {
-                let mut buffer = vec![];
                 let (marker, len_bytes) = self.serialize_length(0xA, value.len());
                 buffer.push(marker);
                 buffer.extend(len_bytes);
@@ -86,7 +86,6 @@ impl BinaryWriter {
                 list.extend(datas);
             }
             Plist::Dictionary(dict) => {
-                let mut buffer = vec![];
                 let (marker, len_bytes) = self.serialize_length(0xD, dict.len());
                 buffer.push(marker);
                 buffer.extend(len_bytes);
@@ -106,27 +105,23 @@ impl BinaryWriter {
                 list.extend(datas);
             }
             Plist::Boolean(value) => {
-                let mut buffer = vec![];
                 let marker = if *value { 0x09 } else { 0x08 };
                 buffer.push(marker);
                 list.push(buffer);
             }
             Plist::Integer(value) => {
-                let mut buffer = vec![];
                 let (marker, bytes) = self.serialize_integer(0x1, *value);
                 buffer.push(marker);
                 buffer.extend(bytes);
                 list.push(buffer);
             }
             Plist::Float(value) => {
-                let mut buffer = vec![];
                 let (marker, bytes) = self.serialize_float(0x2, *value);
                 buffer.push(marker);
                 buffer.extend(bytes);
                 list.push(buffer);
             }
             Plist::String(value) => {
-                let mut buffer = vec![];
                 let bytes = value.as_bytes();
                 let (marker, len_bytes) = self.serialize_length(0x5, bytes.len());
                 buffer.push(marker);
@@ -135,14 +130,12 @@ impl BinaryWriter {
                 list.push(buffer);
             }
             Plist::Date(value) => {
-                let mut buffer = vec![];
                 let (marker, bytes) = self.serialize_date(0x3, *value);
                 buffer.push(marker);
                 buffer.extend(bytes);
                 list.push(buffer);
             }
             Plist::Data(value) => {
-                let mut buffer = vec![];
                 let (marker, bytes) = self.serialize_data(0x4, value);
                 buffer.push(marker);
                 buffer.extend(bytes);
