@@ -13,7 +13,6 @@ impl BinaryWriter {
     pub fn new() -> Self {
         BinaryWriter {
             objects: 0,
-            // object_data: vec![],
             offsets: vec![],
             ref_size: 1,
             offset_size: 1,
@@ -155,7 +154,6 @@ impl BinaryWriter {
         //未使用区域(6字节)
         trailer[6] = self.offset_size;
         trailer[7] = self.ref_size;
-        // let num_object = self.objects;
         trailer[8..16].copy_from_slice(&objects.to_be_bytes());
         trailer[16..24].copy_from_slice(&(root_index as u64).to_be_bytes());
         trailer[24..32].copy_from_slice(&offset_table_start.to_be_bytes());
@@ -258,24 +256,18 @@ impl BinaryWriter {
 
     fn calculate_sizes(&mut self) {
         let max_ref = self.objects;
-        self.ref_size = if max_ref <= 0xFF {
-            1
-        } else if max_ref <= 0xFFFF {
-            2
-        } else if max_ref <= 0xFFFFFFFF {
-            4
-        } else {
-            8
+        self.ref_size = match max_ref {
+            0..=0xFF => 1,
+            0x100..=0xFFFF => 2,
+            0x10000..=0xFFFFFFFF => 4,
+            _ => 8,
         };
         let max_offset = *self.offsets.last().unwrap_or(&0);
-        self.offset_size = if max_offset <= 0xFF {
-            1
-        } else if max_offset <= 0xFFFF {
-            2
-        } else if max_offset <= 0xFFFFFFFF {
-            4
-        } else {
-            8
+        self.offset_size = match max_offset {
+            0..=0xFF => 1,
+            0x100..=0xFFFF => 2,
+            0x10000..=0xFFFFFFFF => 4,
+            _ => 8,
         };
     }
 }
