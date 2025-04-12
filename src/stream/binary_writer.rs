@@ -23,12 +23,12 @@ impl BinaryWriter {
     pub fn write<W: Write>(mut self, value: &Plist, output: &mut W) -> Result<(), Error> {
         // 1. 收集所有对象并生成二进制数据
         let mut bytes = vec![];
-        let (objects_data, _) = self.collect_objects(value, &mut bytes)?;
+        let (objects_data, _) = self.collect_objects("root".to_string(), value, &mut bytes)?;
         //2. 写入头部
         output.write_all(b"bplist00")?;
         //3. 写入偏移表
         let mut cursor = Cursor::new(vec![]);
-        for data in &objects_data {
+        for (_, data) in objects_data.iter().enumerate() {
             self.offsets.push(cursor.position() + 8);
             cursor.write_all(data)?;
         }
@@ -40,7 +40,7 @@ impl BinaryWriter {
         //5. 写入偏移表
         let offset_table = self.generate_offset_table()?;
         output.write_all(&offset_table)?;
-        //6. 写入尾部
+        // 6. 写入尾部
         let trailer_table = self.generate_trailer(0, bytes.len(), offset_table_start as u64)?;
         output.write_all(&trailer_table)?;
         Ok(())
@@ -48,18 +48,19 @@ impl BinaryWriter {
 
     fn collect_objects<'a>(
         &mut self,
+        key: String,
         value: &Plist,
-        mem_bytes: &'a mut Vec<(u64, Vec<Vec<u8>>)>,
+        mem_bytes: &'a mut Vec<(u64, String, Vec<Vec<u8>>)>,
     ) -> Result<(Vec<Vec<u8>>, Vec<u8>), Error> {
         let index = self.objects;
         self.objects += 1;
         let bytes = self.serialize_object(value, mem_bytes)?;
-        let exit_bytes = mem_bytes.iter().find(|(_, d)| **d == bytes);
-        let (bytes, index) = if let Some((key_idx, _)) = exit_bytes {
+        let exit_bytes = mem_bytes.iter().find(|(_, _, d)| **d == bytes);
+        let (bytes, index) = if let Some((key_idx, _, _)) = exit_bytes {
             self.objects -= 1;
             (vec![], *key_idx)
         } else {
-            mem_bytes.push((index, bytes.clone()));
+            mem_bytes.push((index, key, bytes.clone()));
             (bytes, index)
         };
         Ok((bytes, self.serialize_ref(index)))
@@ -67,9 +68,8 @@ impl BinaryWriter {
     fn serialize_object<'a>(
         &mut self,
         value: &Plist,
-        mem_bytes: &'a mut Vec<(u64, Vec<Vec<u8>>)>,
+        mem_bytes: &'a mut Vec<(u64, String, Vec<Vec<u8>>)>,
     ) -> Result<Vec<Vec<u8>>, Error> {
-        // self.objects += 1;
         let mut list = vec![];
         match value {
             Plist::Array(value) => {
@@ -79,7 +79,8 @@ impl BinaryWriter {
                 buffer.extend(len_bytes);
                 let mut datas = vec![];
                 for elem in value {
-                    let (data, ref_bytes) = self.collect_objects(elem, mem_bytes)?;
+                    let (data, ref_bytes) =
+                        self.collect_objects("array".to_string(), elem, mem_bytes)?;
                     buffer.extend(ref_bytes);
                     datas.extend(data);
                 }
@@ -94,12 +95,13 @@ impl BinaryWriter {
                 let mut datas = vec![];
                 for (key, _) in dict {
                     let key_plist = Plist::String(key.clone());
-                    let (data, ref_bytes) = self.collect_objects(&key_plist, mem_bytes)?;
+                    let (data, ref_bytes) =
+                        self.collect_objects(key.clone(), &key_plist, mem_bytes)?;
                     buffer.extend(ref_bytes);
                     datas.extend(data);
                 }
-                for (_, value) in dict {
-                    let (data, ref_bytes) = self.collect_objects(value, mem_bytes)?;
+                for (key, value) in dict {
+                    let (data, ref_bytes) = self.collect_objects(key.clone(), value, mem_bytes)?;
                     buffer.extend(ref_bytes);
                     datas.extend(data);
                 }
@@ -195,11 +197,11 @@ impl BinaryWriter {
         let object_type = code & 0x0F; // 高4位掩码
         let extra_info = len & 0x0F; // 低4位掩码
         // 合并字节：object_type << 4 | extra_info
-        let header_byte = ((object_type << 4) as usize | extra_info) as u8;
-
         if len < 0xF {
+            let header_byte = ((object_type << 4) as usize | extra_info) as u8;
             (header_byte, vec![])
         } else {
+            let header_byte = code << 4 | 0x0F;
             let size_bytes = self.serialize_count(len);
             (header_byte, size_bytes)
         }
@@ -211,13 +213,15 @@ impl BinaryWriter {
             0x10000..=0xFFFFFFFF => 4,
             _ => 8,
         };
-        let bytes = match bytes_needed {
+        let type_byte = (bytes_needed << 4) as u8;
+        let mut bytes = match bytes_needed {
             1 => vec![count as u8],
             2 => (count as u16).to_be_bytes().to_vec(),
             4 => (count as u32).to_be_bytes().to_vec(),
             8 => (count as u64).to_be_bytes().to_vec(),
             _ => panic!("Invalid count"),
         };
+        bytes.insert(0, type_byte);
         bytes
     }
     fn serialize_data(&self, code: u8, value: &Vec<u8>) -> (u8, Vec<u8>) {
