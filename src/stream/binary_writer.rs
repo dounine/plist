@@ -23,7 +23,7 @@ impl BinaryWriter {
     pub fn write<W: Write>(mut self, value: &Plist, output: &mut W) -> Result<(), Error> {
         // 1. 收集所有对象并生成二进制数据
         let mut bytes = vec![];
-        let (objects_data, _) = self.collect_objects("root".to_string(), value, &mut bytes)?;
+        let (objects_data, _) = self.collect_objects(value, &mut bytes)?;
         //2. 写入头部
         output.write_all(b"bplist00")?;
         //3. 写入偏移表
@@ -48,19 +48,18 @@ impl BinaryWriter {
 
     fn collect_objects<'a>(
         &mut self,
-        key: String,
         value: &Plist,
-        mem_bytes: &'a mut Vec<(u64, String, Vec<Vec<u8>>)>,
+        mem_bytes: &'a mut Vec<(u64, Vec<Vec<u8>>)>,
     ) -> Result<(Vec<Vec<u8>>, Vec<u8>), Error> {
         let index = self.objects;
         self.objects += 1;
         let bytes = self.serialize_object(value, mem_bytes)?;
-        let exit_bytes = mem_bytes.iter().find(|(_, _, d)| **d == bytes);
-        let (bytes, index) = if let Some((key_idx, _, _)) = exit_bytes {
+        let exit_bytes = mem_bytes.iter().find(|(_, d)| **d == bytes);
+        let (bytes, index) = if let Some((key_idx, _)) = exit_bytes {
             self.objects -= 1;
             (vec![], *key_idx)
         } else {
-            mem_bytes.push((index, key, bytes.clone()));
+            mem_bytes.push((index, bytes.clone()));
             (bytes, index)
         };
         Ok((bytes, self.serialize_ref(index)))
@@ -68,7 +67,7 @@ impl BinaryWriter {
     fn serialize_object<'a>(
         &mut self,
         value: &Plist,
-        mem_bytes: &'a mut Vec<(u64, String, Vec<Vec<u8>>)>,
+        mem_bytes: &'a mut Vec<(u64, Vec<Vec<u8>>)>,
     ) -> Result<Vec<Vec<u8>>, Error> {
         let mut list = vec![];
         match value {
@@ -79,8 +78,7 @@ impl BinaryWriter {
                 buffer.extend(len_bytes);
                 let mut datas = vec![];
                 for elem in value {
-                    let (data, ref_bytes) =
-                        self.collect_objects("array".to_string(), elem, mem_bytes)?;
+                    let (data, ref_bytes) = self.collect_objects(elem, mem_bytes)?;
                     buffer.extend(ref_bytes);
                     datas.extend(data);
                 }
@@ -95,13 +93,12 @@ impl BinaryWriter {
                 let mut datas = vec![];
                 for (key, _) in dict {
                     let key_plist = Plist::String(key.clone());
-                    let (data, ref_bytes) =
-                        self.collect_objects(key.clone(), &key_plist, mem_bytes)?;
+                    let (data, ref_bytes) = self.collect_objects(&key_plist, mem_bytes)?;
                     buffer.extend(ref_bytes);
                     datas.extend(data);
                 }
-                for (key, value) in dict {
-                    let (data, ref_bytes) = self.collect_objects(key.clone(), value, mem_bytes)?;
+                for (_, value) in dict {
+                    let (data, ref_bytes) = self.collect_objects(value, mem_bytes)?;
                     buffer.extend(ref_bytes);
                     datas.extend(data);
                 }
