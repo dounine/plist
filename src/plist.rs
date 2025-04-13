@@ -87,6 +87,13 @@ impl Plist {
         plist_write.write(self, &mut output)?;
         Ok(output.into_inner())
     }
+    pub fn to_bytes(&self, data: &[u8]) -> Result<Vec<u8>, Error> {
+        if data.starts_with(b"bplist00") {
+            self.to_binary()
+        } else {
+            Ok(self.to_xml().as_bytes().to_vec())
+        }
+    }
     pub fn to_xml(&self) -> String {
         let mut xml = String::from(
             r#"<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
