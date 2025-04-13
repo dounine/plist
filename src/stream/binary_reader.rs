@@ -1,3 +1,4 @@
+use crate::error::Error;
 use crate::plist::Plist;
 use chrono::{DateTime, Utc};
 use nom::IResult;
@@ -6,6 +7,7 @@ use nom::bytes::complete::{tag, take};
 use nom::combinator::{map, recognize};
 use nom::multi::count;
 use nom::number::complete::{be_f32, be_f64, be_u8, be_u16, be_u32, be_u64};
+use std::io::Cursor;
 
 #[derive(Debug)]
 struct Trailer {
@@ -75,6 +77,24 @@ impl BinaryReader {
                 nom::error::ErrorKind::Switch,
             ))),
         }
+    }
+    fn parse_ascii_string(input: &[u8], extra_info: u8) -> IResult<&[u8], Plist> {
+        let (input, len) = if extra_info == 0xF {
+            Self::parse_count(input)?
+        } else {
+            (input, extra_info as usize)
+        };
+        let mut raw_utf16: Vec<u16> = vec![];
+        let mut input = input;
+        for _ in 0..len {
+            let value: u16;
+            (input, value) = be_u16.parse(input)?;
+            raw_utf16.push(value);
+        }
+        let str_value = String::from_utf16(&raw_utf16).map_err(|_| {
+            nom::Err::Error(nom::error::Error::new(input, nom::error::ErrorKind::Fail))
+        })?;
+        Ok((input, Plist::String(str_value)))
     }
     fn parse_string(input: &[u8], extra_info: u8) -> IResult<&[u8], Plist> {
         let (input, len) = if extra_info == 0xF {
@@ -256,6 +276,7 @@ impl BinaryReader {
             0x3 => Self::parse_date(input, extra_info),
             0x4 => Self::parse_data(input, extra_info),
             0x5 => Self::parse_string(input, extra_info),
+            0x6 => Self::parse_ascii_string(input, extra_info),
             0xA => Self::parse_array(data, offset + 1, extra_info, trailer, offsets),
             0xD => Self::parse_dict(data, offset + 1, extra_info, trailer, offsets),
             _ => Err(nom::Err::Error(nom::error::Error::new(

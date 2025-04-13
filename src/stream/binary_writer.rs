@@ -1,6 +1,7 @@
 use crate::error::Error;
 use crate::plist::Plist;
 use chrono::{DateTime, Utc};
+use std::ascii::AsciiExt;
 use std::io::{Cursor, Write};
 
 pub(crate) struct BinaryWriter {
@@ -120,12 +121,22 @@ impl BinaryWriter {
                 buffer.extend(bytes);
                 list.push(buffer);
             }
-            Plist::String(value) => {
+            Plist::String(value) if value.is_ascii() => {
                 let bytes = value.as_bytes();
                 let (marker, len_bytes) = self.serialize_length(0x5, bytes.len());
                 buffer.push(marker);
                 buffer.extend(len_bytes);
                 buffer.extend(bytes);
+                list.push(buffer);
+            }
+            Plist::String(value) => {
+                let utf16_len = value.encode_utf16().count();
+                let (marker, len_bytes) = self.serialize_length(0x6, utf16_len);
+                buffer.push(marker);
+                buffer.extend(len_bytes);
+                for c in value.encode_utf16() {
+                    buffer.extend(&c.to_be_bytes());
+                }
                 list.push(buffer);
             }
             Plist::Date(value) => {

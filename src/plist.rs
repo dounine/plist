@@ -1,10 +1,10 @@
-use crate::stream::binary_reader::BinaryReader;
 use crate::error::Error;
+use crate::stream::binary_reader::BinaryReader;
 use crate::stream::binary_writer::BinaryWriter;
 use crate::stream::xml_reader::XmlReader;
+use crate::stream::xml_writer::XmlWriter;
 use chrono::{DateTime, Utc};
 use std::io::Cursor;
-use crate::stream::xml_writer::XmlWriter;
 
 #[derive(Debug, Clone)]
 pub enum Plist {
@@ -24,6 +24,38 @@ impl Plist {
             Ok(value)
         } else {
             XmlReader::parse(data)
+        }
+    }
+    pub fn insert(&mut self, key: &str, value: Plist) -> Result<(), Error> {
+        match self {
+            Plist::Dictionary(dict) => {
+                let item = dict.iter().enumerate().find(|(index, (k, _))| k == key);
+                if let Some((index, _)) = item {
+                    dict[index] = (key.to_string(), value);
+                } else {
+                    dict.push((key.to_string(), value));
+                }
+                Ok(())
+            }
+            _ => Err(Error::Error("Not a dictionary".to_string()))?,
+        }
+    }
+    pub fn get<'a>(&'a self, key: &str) -> Option<&'a Plist> {
+        if let Plist::Dictionary(dict) = self {
+            dict.iter()
+                .find(|(k, value)| k == key)
+                .map(|(_, value)| value)
+        } else {
+            None
+        }
+    }
+    pub fn get_mut<'a>(&'a mut self, key: &str) -> Option<&'a mut Plist> {
+        if let Plist::Dictionary(dict) = self {
+            dict.iter_mut()
+                .find(|(key, value)| key == key)
+                .map(|(_, value)| value)
+        } else {
+            None
         }
     }
 }
@@ -55,7 +87,7 @@ impl Plist {
         plist_write.write(self, &mut output)?;
         Ok(output.into_inner())
     }
-    pub fn to_xml(self) -> String {
+    pub fn to_xml(&self) -> String {
         let mut xml = String::from(
             r#"<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
