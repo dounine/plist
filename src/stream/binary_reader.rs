@@ -1,4 +1,3 @@
-use crate::error::Error;
 use crate::plist::Plist;
 use chrono::{DateTime, Utc};
 use nom::IResult;
@@ -7,7 +6,6 @@ use nom::bytes::complete::{tag, take};
 use nom::combinator::{map, recognize};
 use nom::multi::count;
 use nom::number::complete::{be_f32, be_f64, be_u8, be_u16, be_u32, be_u64};
-use std::io::Cursor;
 
 #[derive(Debug)]
 struct Trailer {

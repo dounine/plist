@@ -1,7 +1,6 @@
 use crate::error::Error;
 use crate::plist::Plist;
 use chrono::{DateTime, Utc};
-use std::ascii::AsciiExt;
 use std::io::{Cursor, Write};
 
 pub(crate) struct BinaryWriter {

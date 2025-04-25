@@ -18,6 +18,18 @@ pub enum Plist {
     Data(Vec<u8>),
 }
 impl Plist {
+    pub fn get_or_init_dict(&mut self, fkey: &str) -> Result<&mut Self, Error> {
+        Ok(match self {
+            Plist::Dictionary(dict) => {
+                if dict.iter_mut().find(|(key, _)| key == fkey).is_none() {
+                    dict.push((fkey.to_string(), Plist::Dictionary(vec![])));
+                }
+                let (_key, plist) = dict.iter_mut().find(|(key, _)| key == fkey).unwrap();
+                plist
+            }
+            _ => return Err(Error::Error("plist not a directory".to_string())),
+        })
+    }
     pub fn parse(data: &[u8]) -> Result<Self, Error> {
         if data.starts_with(b"bplist00") {
             let (_, value) = BinaryReader::parse(data).map_err(|e| Error::Error(e.to_string()))?;
@@ -29,7 +41,7 @@ impl Plist {
     pub fn insert(&mut self, key: &str, value: Plist) -> Result<(), Error> {
         match self {
             Plist::Dictionary(dict) => {
-                let item = dict.iter().enumerate().find(|(index, (k, _))| k == key);
+                let item = dict.iter().enumerate().find(|(_index, (k, _))| k == key);
                 if let Some((index, _)) = item {
                     dict[index] = (key.to_string(), value);
                 } else {
@@ -42,9 +54,7 @@ impl Plist {
     }
     pub fn get<'a>(&'a self, key: &str) -> Option<&'a Plist> {
         if let Plist::Dictionary(dict) = self {
-            dict.iter()
-                .find(|(k, value)| k == key)
-                .map(|(_, value)| value)
+            dict.iter().find(|(k, _)| k == key).map(|(_, value)| value)
         } else {
             None
         }
@@ -52,7 +62,7 @@ impl Plist {
     pub fn get_mut<'a>(&'a mut self, key: &str) -> Option<&'a mut Plist> {
         if let Plist::Dictionary(dict) = self {
             dict.iter_mut()
-                .find(|(key, value)| key == key)
+                .find(|(k, _)| k == key)
                 .map(|(_, value)| value)
         } else {
             None
@@ -67,6 +77,16 @@ impl From<bool> for Plist {
 impl From<i64> for Plist {
     fn from(value: i64) -> Self {
         Plist::Integer(value)
+    }
+}
+impl From<f64> for Plist {
+    fn from(value: f64) -> Self {
+        Plist::Float(value)
+    }
+}
+impl From<f32> for Plist {
+    fn from(value: f32) -> Self {
+        Plist::Float(value as f64)
     }
 }
 impl From<&str> for Plist {
