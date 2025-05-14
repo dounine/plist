@@ -17,12 +17,16 @@ impl XmlWriter for Plist {
                 xml.push_str(&format!("{}</array>\n", indent_str));
             }
             Plist::Dictionary(dict) => {
-                xml.push_str(&format!("{}<dict>\n", indent_str));
-                for (key, value) in dict {
-                    xml.push_str(&format!("\t{}<key>{}</key>\n", indent_str, key));
-                    xml.push_str(&value.convert_xml(indent + 1)); // 递归增加缩进
+                if dict.is_empty(){
+                    xml.push_str(&format!("{}<dict/>\n", indent_str));
+                }else{
+                    xml.push_str(&format!("{}<dict>\n", indent_str));
+                    for (key, value) in dict {
+                        xml.push_str(&format!("\t{}<key>{}</key>\n", indent_str, key));
+                        xml.push_str(&value.convert_xml(indent + 1)); // 递归增加缩进
+                    }
+                    xml.push_str(&format!("{}</dict>\n", indent_str));
                 }
-                xml.push_str(&format!("{}</dict>\n", indent_str));
             }
             Plist::Boolean(value) => {
                 if *value {
@@ -40,7 +44,10 @@ impl XmlWriter for Plist {
             Plist::Date(value) => xml.push_str(&format!("{}<date>{}</date>\n", indent_str, value)),
             Plist::Data(value) => {
                 let value = String::from_utf8_lossy(value).to_string();
-                xml.push_str(&format!("{}<data>{}</data>\n", indent_str, value))
+                xml.push_str(&format!(
+                    "{}<data>\n{}{}\n{}</data>\n",
+                    indent_str, indent_str, value, indent_str
+                ))
             }
         }
         xml
