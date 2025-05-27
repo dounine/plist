@@ -87,6 +87,16 @@ impl From<&str> for Plist {
         Plist::String(value.to_string())
     }
 }
+impl From<&String> for Plist {
+    fn from(value: &String) -> Self {
+        Plist::String(value.into())
+    }
+}
+impl From<Vec<u8>> for Plist {
+    fn from(value: Vec<u8>) -> Self {
+        Plist::Data(value)
+    }
+}
 impl From<String> for Plist {
     fn from(value: String) -> Self {
         Plist::String(value)
