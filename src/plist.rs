@@ -4,12 +4,13 @@ use crate::stream::binary_writer::BinaryWriter;
 use crate::stream::xml_reader::XmlReader;
 use crate::stream::xml_writer::XmlWriter;
 use chrono::{DateTime, Utc};
+use indexmap::IndexMap;
 use std::io::Cursor;
 
 #[derive(Debug, Clone)]
 pub enum Plist {
     Array(Vec<Plist>),
-    Dictionary(Vec<(String, Plist)>),
+    Dictionary(IndexMap<String, Plist>),
     Boolean(bool),
     Integer(i64),
     Float(f64),
@@ -21,11 +22,10 @@ impl Plist {
     pub fn get_or_init_dict(&mut self, fkey: &str) -> Result<&mut Self, Error> {
         Ok(match self {
             Plist::Dictionary(dict) => {
-                if dict.iter_mut().find(|(key, _)| key == fkey).is_none() {
-                    dict.push((fkey.to_string(), Plist::Dictionary(vec![])));
+                if !dict.contains_key(fkey) {
+                    dict.insert(fkey.to_string(), Plist::Dictionary(IndexMap::new()));
                 }
-                let (_key, plist) = dict.iter_mut().find(|(key, _)| key == fkey).unwrap();
-                plist
+                dict.get_mut(fkey).unwrap()
             }
             _ => return Err(Error::Error("plist not a directory".to_string())),
         })
@@ -41,12 +41,7 @@ impl Plist {
     pub fn insert(&mut self, key: &str, value: Plist) -> Result<(), Error> {
         match self {
             Plist::Dictionary(dict) => {
-                let item = dict.iter().enumerate().find(|(_index, (k, _))| k == key);
-                if let Some((index, _)) = item {
-                    dict[index] = (key.to_string(), value);
-                } else {
-                    dict.push((key.to_string(), value));
-                }
+                dict.insert(key.to_string(), value);
                 Ok(())
             }
             _ => Err(Error::Error("Not a dictionary".to_string()))?,
@@ -54,16 +49,14 @@ impl Plist {
     }
     pub fn get<'a>(&'a self, key: &str) -> Option<&'a Plist> {
         if let Plist::Dictionary(dict) = self {
-            dict.iter().find(|(k, _)| k == key).map(|(_, value)| value)
+            dict.get(key)
         } else {
             None
         }
     }
     pub fn get_mut<'a>(&'a mut self, key: &str) -> Option<&'a mut Plist> {
         if let Plist::Dictionary(dict) = self {
-            dict.iter_mut()
-                .find(|(k, _)| k == key)
-                .map(|(_, value)| value)
+            dict.get_mut(key)
         } else {
             None
         }
@@ -128,7 +121,7 @@ impl Plist {
     }
     pub fn sort_key(&mut self) {
         if let Plist::Dictionary(dict) = self {
-            dict.sort_by(|(a_key, _), (b_key, _)| a_key.cmp(b_key));
+            dict.sort_keys()
         }
     }
 }

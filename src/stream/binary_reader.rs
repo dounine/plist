@@ -1,5 +1,6 @@
 use crate::plist::Plist;
 use chrono::{DateTime, Utc};
+use indexmap::IndexMap;
 use nom::IResult;
 use nom::Parser;
 use nom::bytes::complete::{tag, take};
@@ -244,7 +245,7 @@ impl BinaryReader {
             8 => count(map(be_u64, |v| v as usize), counts).parse(input)?,
             _ => panic!("Invalid object ref size"),
         };
-        let mut dict = vec![];
+        let mut dict = IndexMap::new();
         let mut keys = vec![];
         for index in key_refs {
             let (_, key) = Self::parse_object(data, offsets[index], offsets, trailer)?;
@@ -255,7 +256,7 @@ impl BinaryReader {
         for (key_string, value_index) in keys.into_iter().zip(value_refs) {
             let new_offset = offsets[value_index];
             let (_, key) = Self::parse_object(data, new_offset, offsets, trailer)?;
-            dict.push((key_string, key));
+            dict.insert(key_string, key);
         }
         Ok((input, Plist::Dictionary(dict)))
     }

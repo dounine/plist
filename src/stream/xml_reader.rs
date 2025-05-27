@@ -1,6 +1,7 @@
 use crate::error::Error;
 use crate::plist::Plist;
 use chrono::{DateTime, Utc};
+use indexmap::IndexMap;
 use nom::IResult;
 use nom::Parser;
 use nom::branch::alt;
@@ -68,16 +69,16 @@ impl XmlReader {
         alt((value(true, tag("<true/>")), value(false, tag("<false/>")))).parse(input)
     }
 
-    fn parse_dict(input: &str) -> IResult<&str, Vec<(String, Plist)>> {
+    fn parse_dict(input: &str) -> IResult<&str, IndexMap<String, Plist>> {
         let (input, _) = multispace0(input)?;
         if input.starts_with("<dict/>") {
-            return value(vec![], tag("<dict/>")).parse(input);
+            return value(IndexMap::new(), tag("<dict/>")).parse(input);
         }
         let (input, _) = tag("<dict>")(input)?;
         let (input, values) = many0((Self::parse_key, Self::parse_value)).parse(input)?;
-        let mut dict = vec![];
+        let mut dict = IndexMap::new();
         for (key, value) in values {
-            dict.push((key.to_string(), value));
+            dict.insert(key.to_string(), value);
         }
         let (input, _) = multispace0(input)?;
         let (input, _) = tag("</dict>")(input)?;

@@ -40,7 +40,7 @@ impl BinaryWriter {
         let offset_table = self.generate_offset_table()?;
         output.write_all(&offset_table)?;
         // 6. 写入尾部
-        let trailer_table = self.generate_trailer(0, bytes.len(), offset_table_start as u64)?;
+        let trailer_table = self.generate_trailer(0, bytes.len() as u64, offset_table_start as u64)?;
         output.write_all(&trailer_table)?;
         Ok(())
     }
@@ -156,8 +156,8 @@ impl BinaryWriter {
     }
     fn generate_trailer(
         &self,
-        root_index: usize,
-        objects: usize,
+        root_index: u64,
+        objects: u64,
         offset_table_start: u64,
     ) -> Result<Vec<u8>, Error> {
         let mut trailer = [0_u8; 32];
@@ -165,7 +165,7 @@ impl BinaryWriter {
         trailer[6] = self.offset_size;
         trailer[7] = self.ref_size;
         trailer[8..16].copy_from_slice(&objects.to_be_bytes());
-        trailer[16..24].copy_from_slice(&(root_index as u64).to_be_bytes());
+        trailer[16..24].copy_from_slice(&root_index.to_be_bytes());
         trailer[24..32].copy_from_slice(&offset_table_start.to_be_bytes());
         Ok(trailer.to_vec())
     }
